@@ -8,7 +8,7 @@ import (
 func TestFetch(t *testing.T) {
 	res, err := Fetch(&Request{
 		Method: "GET",
-		Url:    "http://localhost:3000",
+		Url:    "http://localhost:3000/",
 		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
