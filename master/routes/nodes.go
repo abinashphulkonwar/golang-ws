@@ -9,6 +9,7 @@ import (
 
 func getNodes(c *fiber.Ctx) error {
 	query := c.Query("id")
+
 	if query == "" {
 		c.Status(fiber.StatusBadRequest)
 		return c.JSON(fiber.Map{"message": "id not found 👋!"})

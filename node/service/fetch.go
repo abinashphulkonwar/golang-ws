@@ -10,7 +10,7 @@ type Request struct {
 	Method  string
 	Url     string
 	Headers map[string]string
-	Body    string
+	Body    []byte
 }
 
 var client = &http.Client{}
@@ -21,9 +21,9 @@ func req(Request *Request) (*http.Request, error) {
 		req, err := http.NewRequest(Request.Method, Request.Url, nil)
 		return req, err
 	}
-	if Request.Body != "" {
+	if Request.Body != nil {
 
-		data := bytes.NewBuffer([]byte(Request.Body))
+		data := bytes.NewBuffer(Request.Body)
 
 		return http.NewRequest(Request.Method, Request.Url, data)
 	}
@@ -35,7 +35,7 @@ func req(Request *Request) (*http.Request, error) {
 func Fetch(Request *Request) (*http.Response, error) {
 
 	if Request.Method == "GET" {
-		if Request.Body != "" {
+		if Request.Body != nil {
 			return nil, errors.New("body is not allowed for get request")
 		}
 	}

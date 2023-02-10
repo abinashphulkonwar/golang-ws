@@ -33,13 +33,13 @@ func GetNodes(query string) (Node, error) {
 	var node Node
 	var connection Connection
 
-	err := DB.Bucket("tcp").Get(Connection{Id: query}, &connection)
+	err := DB.Bucket("tcp").Get(query, &connection)
 	if err != nil {
 		println("Error: ", err.Error())
 		return node, err
 	}
 	println(connection.Id, " ", connection.Node)
-	nodeErr := DB.Bucket("nodes").Get(Node{IP: connection.Node}, &node)
+	nodeErr := DB.Bucket("nodes").Get(connection.Node, &node)
 	if nodeErr != nil {
 		println("Error: ", nodeErr.Error())
 		return node, nodeErr

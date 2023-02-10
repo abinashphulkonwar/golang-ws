@@ -1,29 +1,34 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
+	"strconv"
+
 	"html/template"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/abinashphulkonwar/ws/db"
 	"github.com/abinashphulkonwar/ws/routes"
+	"github.com/abinashphulkonwar/ws/service"
 	"github.com/abinashphulkonwar/ws/src"
+
 	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{}
 
-type Connection struct {
-	id string
-	c  *websocket.Conn
+type ConnectionRes struct {
+	Message string `json:"message"`
+	Node    string `json:"node"`
 }
 
-var connections = make(map[string]*Connection)
+func echo(w http.ResponseWriter, r *http.Request, ip string) {
 
-var ids = []string{}
-
-func echo(w http.ResponseWriter, r *http.Request) {
 	println("echo", r.Host, r.URL, r.URL.Path)
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -34,29 +39,85 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	defer c.Close()
 
 	id := src.Uuid()
-	ids = append(ids, id)
-	connection := Connection{id: id, c: c}
-	connections[id] = &connection
+	connection := db.Connection{Id: id, C: c, Node: ip, Ttl: time.Now()}
+	db.Connections[id] = &connection
 	println(r.Cookies())
+	println(id)
+	service.SetConnections(&service.Connection{Id: id, Node: ip})
+
 	for {
 		mt, message, err := c.ReadMessage()
 		if err != nil {
 			log.Println("read:", err)
 			break
 		}
+		chat := db.Chat{}
+		errJson := json.Unmarshal(message, &chat)
+		if errJson != nil {
+			c.WriteMessage(mt, []byte("error while parsing message"))
+			return
+		}
 		log.Printf("recv: %s", message)
-		res := append([]byte("server  "), message...)
+		res := append([]byte(id+"   "), message...)
 		err = c.WriteMessage(mt, res)
-		for i := 0; i < len(ids); i++ {
-			ws := *connections[ids[i]]
-			if ws.id != id {
-				err := ws.c.WriteMessage(mt, append([]byte(ws.id+" "), message...))
-				if err != nil {
-					log.Println("write:", err)
-				}
+
+		ws, isNil := db.Connections[chat.SendTo]
+		if isNil {
+			res, err := service.Fetch(&service.Request{
+				Method: "GET",
+				Url:    "http://localhost:3000/connections/get/?id=" + chat.SendTo,
+				Headers: map[string]string{
+					"Content-Type": "application/json",
+				},
+			})
+
+			if err != nil {
+				println("error while fetching")
+				return
+			}
+			if res.StatusCode != 200 {
+				println("error while fetching")
+				return
+			}
+			data, _ := ioutil.ReadAll(res.Body)
+
+			println(string(data))
+			body := ConnectionRes{}
+			err = json.Unmarshal(data, &body)
+			if err != nil {
+				println("error while parsing")
+				return
 			}
 
+			resMessage, error := service.Fetch(&service.Request{
+				Method: "GET",
+				Url:    body.Node + "events?" + "mt=" + strconv.Itoa(mt),
+				Headers: map[string]string{
+					"Content-Type": "application/json",
+				},
+				Body: message,
+			})
+
+			if error != nil {
+				println("error while fetching")
+				return
+			}
+			if resMessage.StatusCode != 200 {
+				println("error while fetching")
+				return
+			}
+
+			return
+
 		}
+
+		if ws.Id != id {
+			err := ws.C.WriteMessage(mt, append([]byte(id+" "), message...))
+			if err != nil {
+				log.Println("write:", err)
+			}
+		}
+
 		if err != nil {
 			log.Println("write:", err)
 			break
@@ -71,7 +132,7 @@ func home(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 
-	port := "3000"
+	port := "3001"
 
 	for i := 1; i < len(os.Args); i++ {
 		println(os.Args[i])
@@ -86,13 +147,21 @@ func main() {
 
 		}
 	}
-	var addr = flag.String("addr", "localhost:"+port, "http service address")
+	ip := "localhost:" + port
+	var addr = flag.String("addr", ip, "http service address")
 
 	flag.Parse()
 	log.SetFlags(0)
-	go http.HandleFunc("/echo", echo)
+	go http.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
+		echo(w, r, ip)
+	})
 	http.HandleFunc("/", home)
 	http.HandleFunc("/events", routes.WsEvents)
+
+	service.SetNode(&service.Node{IP: ip,
+		NAME:   "node1",
+		STATUS: "active"})
+
 	println("listening on port", port)
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }

@@ -4,14 +4,20 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
+	"strconv"
+
+	"github.com/abinashphulkonwar/ws/db"
 )
 
-type bodyType struct {
-	Value string
-	Valid bool
-}
-
 func WsEvents(w http.ResponseWriter, r *http.Request) {
+
+	mt, err := strconv.Atoi(r.URL.Query().Get("mt"))
+	if err != nil {
+		w.WriteHeader(405)
+		w.Write([]byte("method not allowed"))
+
+		return
+	}
 	if r.Method != "POST" {
 		w.WriteHeader(405)
 		w.Write([]byte("method not allowed"))
@@ -25,7 +31,7 @@ func WsEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := bodyType{}
+	data := db.Chat{}
 
 	err = json.Unmarshal(body, &data)
 	if err != nil {
@@ -34,6 +40,15 @@ func WsEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	println("event", data.Valid, data.Valid)
+	connction, isNil := db.Connections[data.SendTo]
+
+	if isNil {
+		w.WriteHeader(405)
+		w.Write([]byte("connection not found"))
+		return
+	}
+
+	connction.C.WriteMessage(mt, body)
+
 	w.Write([]byte("event sent"))
 }
