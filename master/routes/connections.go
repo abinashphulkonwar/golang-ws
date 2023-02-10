@@ -7,7 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func getNodes(c *fiber.Ctx) error {
+func getConnection(c *fiber.Ctx) error {
 	query := c.Query("id")
 	if query == "" {
 		c.Status(fiber.StatusBadRequest)
@@ -22,20 +22,22 @@ func getNodes(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "hiiiii 👋!", "node": node.IP})
 }
 
-func postNodes(c *fiber.Ctx) error {
-	body := db.Node{}
+func postConnection(c *fiber.Ctx) error {
+	body := db.Connection{}
+
 	bytes := c.Body()
 	err := json.Unmarshal(bytes, &body)
 	if err != nil {
 		c.Status(fiber.StatusBadRequest)
 		return c.JSON(fiber.Map{"message": "error in parsing 👋!", "err": err.Error()})
 	}
-	if body.IP == "" || body.NAME == "" || body.STATUS == "" {
+
+	if body.Id == "" || body.Node == "" {
 		c.Status(fiber.StatusUnprocessableEntity)
 		return c.JSON(fiber.Map{"message": "error in validation👋!"})
 	}
+	err = db.SetConnection(&body)
 
-	_, err = db.SetNode(&body)
 	if err != nil {
 		c.Status(fiber.StatusBadRequest)
 		return c.JSON(fiber.Map{"message": "error in parsing 👋!", "err": err.Error()})
@@ -44,10 +46,10 @@ func postNodes(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "add 👋!", "body": body})
 }
 
-func Node(router fiber.Router) {
+func Connection(router fiber.Router) {
 
-	router.Get("/get", getNodes)
-	router.Post("/post", postNodes)
+	router.Get("/get", getConnection)
+	router.Post("/post", postConnection)
 	router.All("*", func(c *fiber.Ctx) error {
 		c.Status(fiber.StatusNotFound)
 		return c.JSON(fiber.Map{"message": "route not found 👋!"})
