@@ -48,21 +48,49 @@ func echo(w http.ResponseWriter, r *http.Request, ip string) {
 	for {
 		mt, message, err := c.ReadMessage()
 		if err != nil {
-			log.Println("read:", err)
-			break
-		}
-		chat := db.Chat{}
-		errJson := json.Unmarshal(message, &chat)
-		if errJson != nil {
-			c.WriteMessage(mt, []byte("error while parsing message"))
+			err := db.ErrorRes{Message: "error while parsing message: " + err.Error(), Type: db.ErrorType}
+			println(err.Message)
+			errMessage, _ := json.MarshalIndent(&err, "", "\t")
+			c.WriteMessage(mt, errMessage)
 			return
 		}
-		log.Printf("recv: %s", message)
-		res := append([]byte(id+"   "), message...)
-		err = c.WriteMessage(mt, res)
+		chat := db.Chat{}
 
+		errJson := json.Unmarshal(message, &chat)
+		if errJson != nil {
+			err := db.ErrorRes{Message: "error while parsing message: " + errJson.Error(), Type: db.ErrorType}
+			println(err.Message)
+			errMessage, _ := json.MarshalIndent(&err, "", "\t")
+			c.WriteMessage(mt, errMessage)
+			return
+		}
+
+		if chat.SendTo == "" {
+			return
+		}
+		chat.SendFrom = id
+		chat.Type = db.MessageType
+		respons, err := json.MarshalIndent(&chat, "", "\t")
+		if err != nil {
+			err := db.ErrorRes{Message: "error while parsing message: " + errJson.Error(), Type: db.ErrorType}
+			errMessage, _ := json.MarshalIndent(&err, "", "\t")
+			c.WriteMessage(mt, errMessage)
+			return
+		}
+
+		log.Printf("recv: %s", message)
+		// err = c.WriteMessage(mt, respons)
+		// if err != nil {
+		// 	err := db.ErrorRes{Message: "error : " + err.Error(), Type: db.ErrorType}
+		// 	println(err.Message)
+		// 	errMessage, _ := json.MarshalIndent(&err, "", "\t")
+		// 	c.WriteMessage(mt, errMessage)
+		// 	return
+		// }
+		println(chat.SendTo, mt)
 		ws, isNil := db.Connections[chat.SendTo]
-		if isNil {
+		println(isNil, "hiiiiiii")
+		if !isNil {
 			res, err := service.Fetch(&service.Request{
 				Method: "GET",
 				Url:    "http://localhost:3000/connections/get/?id=" + chat.SendTo,
@@ -70,7 +98,6 @@ func echo(w http.ResponseWriter, r *http.Request, ip string) {
 					"Content-Type": "application/json",
 				},
 			})
-
 			if err != nil {
 				println("error while fetching")
 				return
@@ -90,14 +117,14 @@ func echo(w http.ResponseWriter, r *http.Request, ip string) {
 			}
 
 			resMessage, error := service.Fetch(&service.Request{
-				Method: "GET",
-				Url:    body.Node + "events?" + "mt=" + strconv.Itoa(mt),
+				Method: "POST",
+				Url:    "http://" + body.Node + "/events?" + "mt=" + strconv.Itoa(mt),
 				Headers: map[string]string{
 					"Content-Type": "application/json",
 				},
-				Body: message,
+				Body: respons,
 			})
-
+			println(resMessage.StatusCode)
 			if error != nil {
 				println("error while fetching")
 				return
@@ -107,20 +134,14 @@ func echo(w http.ResponseWriter, r *http.Request, ip string) {
 				return
 			}
 
-			return
-
-		}
-
-		if ws.Id != id {
-			err := ws.C.WriteMessage(mt, append([]byte(id+" "), message...))
-			if err != nil {
-				log.Println("write:", err)
+		} else {
+			println(chat.Message)
+			if ws.Id != id {
+				err := ws.C.WriteMessage(mt, respons)
+				if err != nil {
+					log.Println("write:", err)
+				}
 			}
-		}
-
-		if err != nil {
-			log.Println("write:", err)
-			break
 		}
 	}
 }
@@ -159,7 +180,7 @@ func main() {
 	http.HandleFunc("/events", routes.WsEvents)
 
 	service.SetNode(&service.Node{IP: ip,
-		NAME:   "node1",
+		NAME:   port,
 		STATUS: "active"})
 
 	println("listening on port", port)
@@ -195,19 +216,30 @@ window.addEventListener("load", function(evt) {
             ws = null;
         }
         ws.onmessage = function(evt) {
-          print("RESPONSE: " + evt.data);
+			const data = JSON.parse(evt.data)
+			
+			if (data.Type === "message") {
+          print("RESPONSE: " + data.message + " from " + data.from);
+			}
+
+			if (data.Type === "error") {
+              print("Error: " + data.message);
+			}
+
         }
         ws.onerror = function(evt) {
             print("ERROR: " + evt.data);
         }
         return false;
     };
+	
     document.getElementById("send").onclick = function(evt) {
         if (!ws) {
             return false;
         }
+		const userId = document.getElementById("user").value
         print("SEND: " + input.value);
-        ws.send(input.value);
+       ws.send(JSON.stringify({id:userId , message: input.value}));
         return false;
     };
     document.getElementById("close").onclick = function(evt) {
@@ -230,7 +262,8 @@ You can change the message and send multiple times.
 <form>
 <button id="open">Open</button>
 <button id="close">Close</button>
-<p><input id="input" type="text" value="Hello world!">
+<p><input id="user" type="text" value="user">
+<p><input id="input" type="text" value="">
 <button id="send">Send</button>
 </form>
 </td><td valign="top" width="50%">
