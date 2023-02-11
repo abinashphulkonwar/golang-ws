@@ -89,7 +89,7 @@ func echo(w http.ResponseWriter, r *http.Request, ip string) {
 		// }
 		println(chat.SendTo, mt)
 		ws, isNil := db.Connections[chat.SendTo]
-		println(isNil, "hiiiiiii")
+
 		if !isNil {
 			res, err := service.Fetch(&service.Request{
 				Method: "GET",
