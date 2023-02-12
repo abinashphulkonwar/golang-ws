@@ -3,10 +3,9 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"strconv"
+	"io"
 
 	"html/template"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -21,11 +20,6 @@ import (
 )
 
 var upgrader = websocket.Upgrader{}
-
-type ConnectionRes struct {
-	Message string `json:"message"`
-	Node    string `json:"node"`
-}
 
 func echo(w http.ResponseWriter, r *http.Request, ip string) {
 
@@ -91,47 +85,39 @@ func echo(w http.ResponseWriter, r *http.Request, ip string) {
 		ws, isNil := db.Connections[chat.SendTo]
 
 		if !isNil {
-			res, err := service.Fetch(&service.Request{
-				Method: "GET",
-				Url:    "http://localhost:3000/connections/get/?id=" + chat.SendTo,
-				Headers: map[string]string{
-					"Content-Type": "application/json",
-				},
-			})
-			if err != nil {
-				println("error while fetching")
-				return
-			}
-			if res.StatusCode != 200 {
-				println("error while fetching")
-				return
-			}
-			data, _ := ioutil.ReadAll(res.Body)
 
-			println(string(data))
-			body := ConnectionRes{}
-			err = json.Unmarshal(data, &body)
-			if err != nil {
-				println("error while parsing")
-				return
-			}
+			node, isNil := db.Connectionothers[chat.SendTo]
+			exp := node.Ttl.Add(25 * time.Second)
+			if isNil && exp.Before(time.Now()) {
+				service.PostEvent(&db.ConnectionRes{
+					Message: "node not found",
+					Node:    node.Node,
+				}, mt, respons)
 
-			resMessage, error := service.Fetch(&service.Request{
-				Method: "POST",
-				Url:    "http://" + body.Node + "/events?" + "mt=" + strconv.Itoa(mt),
-				Headers: map[string]string{
-					"Content-Type": "application/json",
-				},
-				Body: respons,
-			})
-			println(resMessage.StatusCode)
-			if error != nil {
-				println("error while fetching")
-				return
-			}
-			if resMessage.StatusCode != 200 {
-				println("error while fetching")
-				return
+			} else {
+				res, err := service.GetNode(&chat)
+				if err != nil {
+					println("error while fetching")
+				} else {
+					data, _ := io.ReadAll(res)
+					println(string(data))
+					body := db.ConnectionRes{}
+					err = json.Unmarshal(data, &body)
+					if err != nil {
+						println("error while parsing")
+
+					} else {
+
+						db.Connectionothers[chat.SendTo] = &db.OthersConnection{
+							Id:   chat.SendTo,
+							Node: body.Node,
+							Ttl:  time.Now(),
+						}
+
+						service.PostEvent(&body, mt, respons)
+					}
+
+				}
 			}
 
 		} else {
@@ -154,6 +140,8 @@ func home(w http.ResponseWriter, r *http.Request) {
 func main() {
 
 	port := "3001"
+
+	db.UpdateTtl()
 
 	for i := 1; i < len(os.Args); i++ {
 		println(os.Args[i])
